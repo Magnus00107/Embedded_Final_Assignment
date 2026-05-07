@@ -25,6 +25,7 @@ Poster Assignment/portasm.asm
 Poster Assignment/queue.c
 Poster Assignment/startup_frt.c
 Poster Assignment/systick_frt.c
+Poster Assignment/systick.c
 Poster Assignment/tasks.c
 Poster Assignment/tm4c123gh6pm.cmd
 Poster Assignment/tm4c123gh6pm.h
