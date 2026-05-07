@@ -99,7 +99,8 @@ typedef enum
     INPUT_EVENT_DIGI_RIGHT,
     INPUT_EVENT_DIGI_BUTTON,
     INPUT_EVENT_SW1,
-    INPUT_EVENT_SW2
+    INPUT_EVENT_SW2_PRESSED,
+    INPUT_EVENT_SW2_RELEASED
 } InputEventType_t;
 /*****************************************************************************
  *   Input    : -

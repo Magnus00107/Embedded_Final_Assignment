@@ -37,6 +37,7 @@ void Switch_Task(void *pvParameters)
     uint8_t old_sw2;
     uint8_t sw1;
     uint8_t sw2;
+
     InputEvent_t event;
 
     (void)pvParameters;
@@ -61,7 +62,14 @@ void Switch_Task(void *pvParameters)
 
         if ((old_sw2 != 0U) && (sw2 == 0U))
         {
-            event.type = INPUT_EVENT_SW2;
+            event.type = INPUT_EVENT_SW2_PRESSED;
+            event.key = 0;
+            xQueueSend(xInputQueue, &event, 0);
+        }
+
+        if ((old_sw2 == 0U) && (sw2 != 0U))
+        {
+            event.type = INPUT_EVENT_SW2_RELEASED;
             event.key = 0;
             xQueueSend(xInputQueue, &event, 0);
         }
@@ -72,3 +80,5 @@ void Switch_Task(void *pvParameters)
         vTaskDelay(pdMS_TO_TICKS(DELAY_MS));
     }
 }
+
+

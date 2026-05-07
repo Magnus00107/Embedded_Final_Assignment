@@ -166,6 +166,8 @@ void App_Task(void *pvParameters)
     uint16_t userWallet = 0;
     char line2[17];
 
+
+
     (void)pvParameters;
 
     App_SendDisplay("Coffee Machine", "Press #");
@@ -407,7 +409,7 @@ void App_Task(void *pvParameters)
                             cupPlaced = 1;
                             App_SendDisplay("Cup placed", "Press SW2");
                         }
-                        else if (inputEvent.type == INPUT_EVENT_SW2)
+                        else if (inputEvent.type == INPUT_EVENT_SW2_PRESSED)
                         {
                             if (cupPlaced == 0)
                             {
@@ -452,11 +454,13 @@ void App_Task(void *pvParameters)
                                     App_SendDisplay("Filter coffee", "press to brew");
                                     if (inputEvent.type == INPUT_EVENT_SW1)
                                     {
+
                                         // clamout += 0.6
                                         // total += 1.8
                                         // sprintf(line1, "total", total, "price", 3);
                                         // sprintf(line2, "amount", clamount);
                                         // App_SendDisplay(line1, "");
+                                        App_SendDisplay("Enter pin. no", pinCode);
                                         vTaskDelay(pdMS_TO_TICKS(1000));
                                     }
                                     App_SendLed(LED_COLOR_YELLOW, LED_MODE_ON_FOR_TIME, 5000);
