@@ -139,6 +139,10 @@ void Led_Task(void *pvParameters)
                     Led_AllOff();
                     break;
 
+                case LED_MODE_ON:
+                    Led_Set(ledMessage.color);
+                    break;
+
                 case LED_MODE_ON_FOR_TIME:
                     Led_Set(ledMessage.color);
                     vTaskDelay(pdMS_TO_TICKS(ledMessage.duration_ms));

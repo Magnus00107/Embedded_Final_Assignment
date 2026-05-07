@@ -83,7 +83,10 @@ typedef struct
 
 typedef enum
 {
-    PRODUCT_NONE = 0, PRODUCT_ESPRESSO, PRODUCT_LATTE, PRODUCT_FILTER
+    PRODUCT_NONE = 0,
+    PRODUCT_ESPRESSO,
+    PRODUCT_LATTE,
+    PRODUCT_FILTER
 } Product_t;
 /*****************************************************************************
  *   Input    : -
@@ -120,7 +123,10 @@ typedef enum
 
 typedef enum
 {
-    LED_MODE_OFF = 0, LED_MODE_ON_FOR_TIME, LED_MODE_BLINK
+    LED_MODE_OFF = 0,
+    LED_MODE_ON,
+    LED_MODE_ON_FOR_TIME,
+    LED_MODE_BLINK
 } LedMode_t;
 /*****************************************************************************
  *   Input    : -
