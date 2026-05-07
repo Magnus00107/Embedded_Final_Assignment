@@ -72,3 +72,13 @@ Release/
 
 *.mk
 
+
+# IDE / project metadata
+.launches/
+.settings/
+.DS_Store
+.ccsproject
+.cproject
+
+# Startup file excluded from submission
+tm4c123gh6pm_startup_ccs.c
