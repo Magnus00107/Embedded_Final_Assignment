@@ -1,0 +1,31 @@
+# CCS / workspace folders
+.jxbrowser.userdata/
+.metadata/
+dvt/
+RemoteSystemsTempFiles/
+
+
+# Root project files
+.project
+
+# Poster Assignment internal files/folders
+Poster Assignment/.launches/
+Poster Assignment/.settings/
+Poster Assignment/Debug/
+Poster Assignment/targetConfigs/
+
+Poster Assignment/.ccsproject
+Poster Assignment/.cproject
+Poster Assignment/.project
+
+Poster Assignment/heap_2.c
+Poster Assignment/list.c
+Poster Assignment/port.c
+Poster Assignment/portasm.asm
+Poster Assignment/queue.c
+Poster Assignment/startup_frt.c
+Poster Assignment/systick_frt.c
+Poster Assignment/tasks.c
+Poster Assignment/tm4c123gh6pm.cmd
+Poster Assignment/tm4c123gh6pm.h
+Poster Assignment/tm4c123gh6pm_startup_ccs.c
