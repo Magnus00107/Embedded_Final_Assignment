@@ -28,4 +28,47 @@ Poster Assignment/systick_frt.c
 Poster Assignment/tasks.c
 Poster Assignment/tm4c123gh6pm.cmd
 Poster Assignment/tm4c123gh6pm.h
-Poster Assignment/tm4c123gh6pm_startup_ccs.c
+Poster Assignment/tm4c123gh6pm_startup_ccs.cDebug/
+
+# Build folders
+Debug/
+Release/
+
+# Object/build files
+*.o
+*.obj
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+*.out
+*.d
+*.su
+*.mk
+Debug/
+Debug/
+
+Release/
+*.o
+
+*.obj
+
+*.elf
+
+*.hex
+
+*.bin
+
+*.map
+
+*.lst
+
+*.out
+
+*.d
+
+*.su
+
+*.mk
+
