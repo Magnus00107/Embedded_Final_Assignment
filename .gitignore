@@ -88,18 +88,18 @@ tm4c123gh6pm_startup_ccs.c
 tm4c123gh6pm.h
 tm4c123gh6pm.cmd
 
-
+# Folders
 .launches/
 .settings/
 Debug/
 targetConfigs/
 
-
+# CCS project files
 .ccsproject
 .cproject
 .project
 
-
+# Source files
 heap_2.c
 list.c
 port.c
