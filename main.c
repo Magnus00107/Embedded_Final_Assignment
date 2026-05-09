@@ -77,34 +77,34 @@ int main(void)
     if(logQueue    == NULL) Error_Stop("ERROR: logQueue failed");
 
     taskStatus = xTaskCreate(LCD_Task, "LCD", LCD_TASK_STACK_SIZE, NULL, LCD_TASK_PRIORITY, NULL);
-    if(taskStatus != pdPASS) Error_Stop("ERROR: LCD task failed");
+
 
     taskStatus = xTaskCreate(Keypad_Task, "KEYPAD", KEYPAD_TASK_STACK_SIZE, NULL, KEYPAD_TASK_PRIORITY, NULL);
-    if(taskStatus != pdPASS) Error_Stop("ERROR: Keypad task failed");
+
 
     taskStatus = xTaskCreate(DigiSwitch_Task, "DIGISWITCH", DIGISWITCH_TASK_STACK_SIZE, NULL, DIGISWITCH_TASK_PRIORITY, NULL);
-    if(taskStatus != pdPASS) Error_Stop("ERROR: DigiSwitch task failed");
+
 
     taskStatus = xTaskCreate(App_Task, "APP", APP_TASK_STACK_SIZE, NULL, APP_TASK_PRIORITY, &xAppTaskHandle);
-    if(taskStatus != pdPASS) Error_Stop("ERROR: App task failed");
+
 
     taskStatus = xTaskCreate(Led_Task, "LED", LED_TASK_STACK_SIZE, NULL, LED_TASK_PRIORITY, NULL);
-    if(taskStatus != pdPASS) Error_Stop("ERROR: LED task failed");
+
 
     taskStatus = xTaskCreate(Switch_Task, "SWITCH", SWITCH_TASK_STACK_SIZE, NULL, SWITCH_TASK_PRIORITY, NULL);
-    if(taskStatus != pdPASS) Error_Stop("ERROR: Switch task failed");
+
 
     taskStatus = xTaskCreate(UART_Task, "UART", UART_TASK_STACK_SIZE, NULL, UART_TASK_PRIORITY, NULL);
-    if(taskStatus != pdPASS) Error_Stop("ERROR: UART task failed");
+
 
     taskStatus = xTaskCreate(Logger_Task, "LOGGER", LOGGER_TASK_STACK_SIZE, NULL, LOGGER_TASK_PRIORITY, NULL);
-    if(taskStatus != pdPASS) Error_Stop("ERROR: Logger task failed");
+
 
     taskStatus = xTaskCreate(Clock_Task, "CLOCK", CLOCK_TASK_STACK_SIZE, NULL, CLOCK_TASK_PRIORITY, NULL);
-    if(taskStatus != pdPASS) Error_Stop("ERROR: Clock task failed");
+
 
     taskStatus = xTaskCreate(Command_Task, "COMMAND", COMMAND_TASK_STACK_SIZE, NULL, COMMAND_TASK_PRIORITY, NULL);
-    if(taskStatus != pdPASS) Error_Stop("ERROR: Command task failed");
+
 
     UART0_SendString("Starting scheduler\r\n");
 

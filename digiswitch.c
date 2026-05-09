@@ -6,7 +6,7 @@
 *
 * PROJECT....: Poster Assignment
 *
-* DESCRIPTION: Digital switch / rotary encoder driver and FreeRTOS task
+* DESCRIPTION: Digital switch / rotary encoder driver and FreeRTOS task.
 *
 * Change Log:
 ******************************************************************************
@@ -30,123 +30,131 @@
 
 /*****************************    Defines    *******************************/
 
-#define DIGI_A                  (1U << 5)   /* PA5 */
-#define DIGI_B                  (1U << 6)   /* PA6 */
-#define DIGI_P2                 (1U << 7)   /* PA7 */
+#define DIGI_SWITCH_A_PIN       (1U << 5)   /* PA5 */
+#define DIGI_SWITCH_B_PIN       (1U << 6)   /* PA6 */
+#define DIGI_SWITCH_BUTTON_PIN  (1U << 7)   /* PA7 */
 
-#define DIGI_SCAN_DELAY_MS      5U
+#define DIGI_SWITCH_PORT_A      (1U << 0)
+#define DIGI_SWITCH_SCAN_TIME   5U
+#define DIGI_SWITCH_LOW         0U
+#define DIGI_SWITCH_HIGH        1U
 
 /*****************************   Constants   *******************************/
-
-/*****************************   Functions   *******************************/
-
-static uint8_t DigiSwitch_ReadA(void);
-/*****************************************************************************
-*   Input    : -
-*   Output   : Current logic level on DIGI A
-*   Function : Reads channel A input
-******************************************************************************/
-
-static uint8_t DigiSwitch_ReadB(void);
-/*****************************************************************************
-*   Input    : -
-*   Output   : Current logic level on DIGI B
-*   Function : Reads channel B input
-******************************************************************************/
-
-static uint8_t DigiSwitch_ReadButton(void);
-/*****************************************************************************
-*   Input    : -
-*   Output   : Current logic level on DIGI P2
-*   Function : Reads digital switch push button input
-******************************************************************************/
 
 /*****************************   Variables   *******************************/
 
 /*****************************   Functions   *******************************/
 
-static uint8_t DigiSwitch_ReadA(void)
+static uint8_t digi_switch_read_pin(uint32_t pin_mask)
+/*****************************************************************************
+*   Input    : Pin mask for the selected GPIO input
+*   Output   : Logic level of the selected input pin
+*   Function : Reads one digital switch input from GPIO port A
+******************************************************************************/
 {
-    return ((GPIO_PORTA_DATA_R & DIGI_A) ? 1U : 0U);
+    uint8_t pin_state = DIGI_SWITCH_LOW;
+
+    if ((GPIO_PORTA_DATA_R & pin_mask) != 0U)
+    {
+        pin_state = DIGI_SWITCH_HIGH;
+    }
+
+    return pin_state;
 }
 
 /****************************** End Of Function ****************************/
 
-static uint8_t DigiSwitch_ReadB(void)
+static void digi_switch_send_event(InputEventType_t event_type)
+/*****************************************************************************
+*   Input    : Event type to send
+*   Output   : -
+*   Function : Sends a digital switch input event to the input queue
+******************************************************************************/
 {
-    return ((GPIO_PORTA_DATA_R & DIGI_B) ? 1U : 0U);
-}
+    InputEvent_t input_event;
 
-/****************************** End Of Function ****************************/
+    input_event.type = event_type;
+    input_event.key = 0U;
 
-static uint8_t DigiSwitch_ReadButton(void)
-{
-    return ((GPIO_PORTA_DATA_R & DIGI_P2) ? 1U : 0U);
+    xQueueSend(xInputQueue, &input_event, 0U);
 }
 
 /****************************** End Of Function ****************************/
 
 void DigiSwitch_Init(void)
+/*****************************************************************************
+*   Input    : -
+*   Output   : -
+*   Function : Initializes GPIO port A pins used by the digital switch
+******************************************************************************/
 {
-    volatile uint32_t dummy;
+    volatile uint32_t dummy_read;
 
-    SYSCTL_RCGCGPIO_R |= (1U << 0);        /* Enable Port A */
-    dummy = SYSCTL_RCGCGPIO_R;
-    (void)dummy;
+    SYSCTL_RCGCGPIO_R |= DIGI_SWITCH_PORT_A;
+    dummy_read = SYSCTL_RCGCGPIO_R;
+    (void)dummy_read;
 
-    GPIO_PORTA_DIR_R &= ~(DIGI_A | DIGI_B | DIGI_P2);
-    GPIO_PORTA_DEN_R |=  (DIGI_A | DIGI_B | DIGI_P2);
+    GPIO_PORTA_DIR_R &= ~(DIGI_SWITCH_A_PIN |
+                          DIGI_SWITCH_B_PIN |
+                          DIGI_SWITCH_BUTTON_PIN);
+
+    GPIO_PORTA_DEN_R |=  (DIGI_SWITCH_A_PIN |
+                          DIGI_SWITCH_B_PIN |
+                          DIGI_SWITCH_BUTTON_PIN);
 }
 
 /****************************** End Of Function ****************************/
 
 void DigiSwitch_Task(void *pvParameters)
+/*****************************************************************************
+*   Input    : FreeRTOS task parameter
+*   Output   : -
+*   Function : Polls the digital switch and sends rotation/button events
+******************************************************************************/
 {
-    uint8_t prevA;
-    uint8_t prevButton;
-    InputEvent_t inputEvent;
+    uint8_t previous_a_state;
+    uint8_t previous_button_state;
 
     (void)pvParameters;
 
     DigiSwitch_Init();
 
-    prevA = DigiSwitch_ReadA();
-    prevButton = DigiSwitch_ReadButton();
+    previous_a_state = digi_switch_read_pin(DIGI_SWITCH_A_PIN);
+    previous_button_state = digi_switch_read_pin(DIGI_SWITCH_BUTTON_PIN);
 
     for (;;)
     {
-        uint8_t currentA = DigiSwitch_ReadA();
-        uint8_t currentB = DigiSwitch_ReadB();
-        uint8_t currentButton = DigiSwitch_ReadButton();
+        uint8_t current_a_state;
+        uint8_t current_b_state;
+        uint8_t current_button_state;
 
-        /* Detect rotation on rising edge of channel A */
-        if (currentA != prevA)
+        current_a_state = digi_switch_read_pin(DIGI_SWITCH_A_PIN);
+        current_b_state = digi_switch_read_pin(DIGI_SWITCH_B_PIN);
+        current_button_state = digi_switch_read_pin(DIGI_SWITCH_BUTTON_PIN);
+
+        if (current_a_state != previous_a_state)
         {
-            inputEvent.key = 0;
-
-            if (currentA == currentB)
+            if (current_a_state == current_b_state)
             {
-                inputEvent.type = INPUT_EVENT_DIGI_LEFT;
+                digi_switch_send_event(INPUT_EVENT_DIGI_LEFT);
             }
             else
             {
-                inputEvent.type = INPUT_EVENT_DIGI_RIGHT;
+                digi_switch_send_event(INPUT_EVENT_DIGI_RIGHT);
             }
-
-            xQueueSend(xInputQueue, &inputEvent, 0);
         }
 
-        if ((prevButton == 0U) && (currentButton == 1U))
+        if ((previous_button_state == DIGI_SWITCH_LOW) &&
+            (current_button_state == DIGI_SWITCH_HIGH))
         {
-            inputEvent.type = INPUT_EVENT_DIGI_BUTTON;
-            inputEvent.key = 0;
-            xQueueSend(xInputQueue, &inputEvent, 0);
+            digi_switch_send_event(INPUT_EVENT_DIGI_BUTTON);
         }
 
-        prevA = currentA;
-        prevButton = currentButton;
+        previous_a_state = current_a_state;
+        previous_button_state = current_button_state;
 
-        vTaskDelay(pdMS_TO_TICKS(DIGI_SCAN_DELAY_MS));
+        vTaskDelay(pdMS_TO_TICKS(DIGI_SWITCH_SCAN_TIME));
     }
 }
+
 /****************************** End Of Function ****************************/

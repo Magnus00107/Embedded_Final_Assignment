@@ -1,355 +1,636 @@
+/*****************************************************************************
+* University of Southern Denmark
+* Embedded C Programming (ECP)
+*
+* MODULENAME.: loggerMain.c
+*
+* PROJECT....: Poster Assignment
+*
+* DESCRIPTION: Logger, UART command handling, sales report and clock tasks.
+*
+* Change Log:
+******************************************************************************
+* Date    Id    Change
+* YYMMDD
+* --------------------
+* 260430  MoH   Module created.
+*
+*****************************************************************************/
+
+/***************************** Include files *******************************/
+
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "loggerMain.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "tm4c123gh6pm.h"
 #include "queue.h"
-
-#include <stdio.h>
-#include <string.h>
+#include "tm4c123gh6pm.h"
 #include "app_types.h"
-#include <stdlib.h>
-#include <stdint.h>
 
-#define UART_MSG_SIZE 120
-#define CMD_BUFFER_SIZE 50
+/*****************************    Defines    *******************************/
+
+#define UART_MSG_SIZE               120U
+#define CMD_BUFFER_SIZE             50U
+#define CMD_LAST_INDEX              (CMD_BUFFER_SIZE - 1U)
+
+#define UART_QUEUE_WAIT_MS          100U
+#define COMMAND_TASK_DELAY_MS       10U
+#define CLOCK_TASK_DELAY_MS         1000U
+
+#define UART0_RX_EMPTY              0x10U
+#define UART0_TX_FULL               0x20U
+
+#define UART0_CLOCK_ENABLE          0x01U
+#define GPIO_PORT_A_ENABLE          0x01U
+#define GPIO_PA0_PA1_MASK           0x03U
+#define GPIO_PCTL_PA0_PA1_MASK      0xFFFFFF00U
+#define GPIO_PCTL_UART0_PA0_PA1     0x00000011U
+
+#define UART0_DISABLE               0x01U
+#define UART0_ENABLE                0x301U
+#define UART0_BAUD_INT              8U
+#define UART0_BAUD_FRAC             44U
+#define UART0_LINE_CONTROL          0x70U
+#define UART0_DATA_MASK             0xFFU
+
+#define TIME_SECONDS_MAX            60U
+#define TIME_MINUTES_MAX            60U
+#define TIME_HOURS_MAX              24U
+
+#define DEFAULT_ESPRESSO_PRICE      15U
+#define DEFAULT_LATTE_PRICE         27U
+#define DEFAULT_FILTER_PRICE        3U
+
+/*****************************   Constants   *******************************/
+
+/*****************************   Variables   *******************************/
 
 QueueHandle_t uartQueue = NULL;
-QueueHandle_t logQueue  = NULL;
-ProductPrices_t prices = {15, 27, 3};
+QueueHandle_t logQueue = NULL;
+
+ProductPrices_t prices =
+{
+    DEFAULT_ESPRESSO_PRICE,
+    DEFAULT_LATTE_PRICE,
+    DEFAULT_FILTER_PRICE
+};
+
 SalesReport_t salesReport = {0};
 SystemTime systemTime = {0, 0, 0};
 TimeOfDay_t timeOfDay = {0, 0, 0};
 
-const char* ProductToString(Product_t product)
+/*****************************   Functions   *******************************/
+
+static void logger_send_uart_message(char *message)
+/*****************************************************************************
+*   Input    : Pointer to message string
+*   Output   : -
+*   Function : Sends a text message to the UART queue
+******************************************************************************/
 {
-    switch(product)
+    xQueueSend(uartQueue, &message, pdMS_TO_TICKS(UART_QUEUE_WAIT_MS));
+}
+
+/****************************** End Of Function ****************************/
+
+static void logger_copy_time_to_entry(LogEntry *entry)
+/*****************************************************************************
+*   Input    : Pointer to log entry
+*   Output   : -
+*   Function : Copies current time of day into a log entry
+******************************************************************************/
+{
+    taskENTER_CRITICAL();
+    entry->hours = timeOfDay.hours;
+    entry->minutes = timeOfDay.minutes;
+    entry->seconds = timeOfDay.seconds;
+    taskEXIT_CRITICAL();
+}
+
+/****************************** End Of Function ****************************/
+
+static void logger_create_sale(Product_t product,
+                               uint8_t amount,
+                               uint16_t price,
+                               Payment_t payment,
+                               const char *payment_info)
+/*****************************************************************************
+*   Input    : Product, amount, price, payment type and payment information
+*   Output   : -
+*   Function : Creates and sends a log entry to the log queue
+******************************************************************************/
+{
+    LogEntry entry;
+
+    entry.product = product;
+    entry.amount = amount;
+    entry.price = price;
+    entry.payment = payment;
+
+    strncpy(entry.paymentInfo, payment_info, sizeof(entry.paymentInfo) - 1U);
+    entry.paymentInfo[sizeof(entry.paymentInfo) - 1U] = '\0';
+
+    logger_copy_time_to_entry(&entry);
+
+    xQueueSend(logQueue, &entry, portMAX_DELAY);
+}
+
+/****************************** End Of Function ****************************/
+
+static void logger_increment_time(TimeOfDay_t *time_value)
+/*****************************************************************************
+*   Input    : Pointer to time value
+*   Output   : -
+*   Function : Increments a HH:MM:SS time value by one second
+******************************************************************************/
+{
+    time_value->seconds++;
+
+    if (time_value->seconds >= TIME_SECONDS_MAX)
     {
-        case PRODUCT_ESPRESSO: return "ESPRESSO";
-        case PRODUCT_LATTE:    return "LATTE";
-        case PRODUCT_FILTER:   return "FILTER";
-        default:               return "UNKNOWN";
+        time_value->seconds = 0U;
+        time_value->minutes++;
+    }
+
+    if (time_value->minutes >= TIME_MINUTES_MAX)
+    {
+        time_value->minutes = 0U;
+        time_value->hours++;
+    }
+
+    if (time_value->hours >= TIME_HOURS_MAX)
+    {
+        time_value->hours = 0U;
     }
 }
 
-const char* PaymentToString(Payment_t payment)
+/****************************** End Of Function ****************************/
+
+const char *ProductToString(Product_t product)
+/*****************************************************************************
+*   Input    : Product type
+*   Output   : Pointer to product text
+*   Function : Converts a product enum to readable text
+******************************************************************************/
 {
-    switch(payment)
+    const char *product_text = "UNKNOWN";
+
+    switch (product)
     {
-        case PAYMENT_CASH: return "CASH";
-        case PAYMENT_CARD: return "CARD";
-        default:           return "NONE";
+        case PRODUCT_ESPRESSO:
+            product_text = "ESPRESSO";
+            break;
+
+        case PRODUCT_LATTE:
+            product_text = "LATTE";
+            break;
+
+        case PRODUCT_FILTER:
+            product_text = "FILTER";
+            break;
+
+        default:
+            break;
     }
+
+    return product_text;
 }
+
+/****************************** End Of Function ****************************/
+
+const char *PaymentToString(Payment_t payment)
+/*****************************************************************************
+*   Input    : Payment type
+*   Output   : Pointer to payment text
+*   Function : Converts a payment enum to readable text
+******************************************************************************/
+{
+    const char *payment_text = "NONE";
+
+    switch (payment)
+    {
+        case PAYMENT_CASH:
+            payment_text = "CASH";
+            break;
+
+        case PAYMENT_CARD:
+            payment_text = "CARD";
+            break;
+
+        default:
+            break;
+    }
+
+    return payment_text;
+}
+
+/****************************** End Of Function ****************************/
 
 int UART0_CharAvailable(void)
+/*****************************************************************************
+*   Input    : -
+*   Output   : Non-zero if a UART character is available
+*   Function : Checks if UART0 has received data
+******************************************************************************/
 {
-    return ((UART0_FR_R & 0x10) == 0);
+    int char_available = 0;
+
+    if ((UART0_FR_R & UART0_RX_EMPTY) == 0U)
+    {
+        char_available = 1;
+    }
+
+    return char_available;
 }
+
+/****************************** End Of Function ****************************/
 
 char UART0_GetChar(void)
+/*****************************************************************************
+*   Input    : -
+*   Output   : Received UART character
+*   Function : Waits for and reads one character from UART0
+******************************************************************************/
 {
-    while((UART0_FR_R & 0x10) != 0);
-    return (char)(UART0_DR_R & 0xFF);
+    char received_char;
+
+    while ((UART0_FR_R & UART0_RX_EMPTY) != 0U)
+    {
+    }
+
+    received_char = (char)(UART0_DR_R & UART0_DATA_MASK);
+
+    return received_char;
 }
 
+/****************************** End Of Function ****************************/
+
 void ParseCommand(char *cmd)
+/*****************************************************************************
+*   Input    : Command string
+*   Output   : -
+*   Function : Parses UART commands and updates logger state
+******************************************************************************/
 {
     char msg[UART_MSG_SIZE];
     int value;
+    int hours;
+    int minutes;
+    int seconds;
+    uint8_t command_handled = 0U;
 
-    if(strcmp(cmd, "REPORT") == 0)
+    if (strcmp(cmd, "REPORT") == 0)
     {
         snprintf(msg, UART_MSG_SIZE, "REPORT:\r\n");
-        xQueueSend(uartQueue, &msg, pdMS_TO_TICKS(100));
+        xQueueSend(uartQueue, &msg, pdMS_TO_TICKS(UART_QUEUE_WAIT_MS));
 
-        snprintf(msg, UART_MSG_SIZE, "ESPRESSO SOLD=%u REV=%lu DKK\r\n", salesReport.espressoSold, salesReport.espressoRevenue);
-        xQueueSend(uartQueue, &msg, pdMS_TO_TICKS(100));
+        snprintf(msg, UART_MSG_SIZE, "ESPRESSO SOLD=%u REV=%lu DKK\r\n",
+                 salesReport.espressoSold,
+                 salesReport.espressoRevenue);
+        xQueueSend(uartQueue, &msg, pdMS_TO_TICKS(UART_QUEUE_WAIT_MS));
 
-        snprintf(msg, UART_MSG_SIZE, "LATTE SOLD=%u REV=%lu DKK\r\n", salesReport.latteSold, salesReport.latteRevenue);
-        xQueueSend(uartQueue, &msg, pdMS_TO_TICKS(100));
+        snprintf(msg, UART_MSG_SIZE, "LATTE SOLD=%u REV=%lu DKK\r\n",
+                 salesReport.latteSold,
+                 salesReport.latteRevenue);
+        xQueueSend(uartQueue, &msg, pdMS_TO_TICKS(UART_QUEUE_WAIT_MS));
 
-        snprintf(msg, UART_MSG_SIZE, "FILTER CL=%u REV=%lu DKK\r\n", salesReport.filterClSold, salesReport.filterRevenue);
-        xQueueSend(uartQueue, &msg, pdMS_TO_TICKS(100));
+        snprintf(msg, UART_MSG_SIZE, "FILTER CL=%u REV=%lu DKK\r\n",
+                 salesReport.filterClSold,
+                 salesReport.filterRevenue);
+        xQueueSend(uartQueue, &msg, pdMS_TO_TICKS(UART_QUEUE_WAIT_MS));
 
-        snprintf(msg, UART_MSG_SIZE, "CASH TOTAL=%lu DKK\r\n", salesReport.cashTotal);
-        xQueueSend(uartQueue, &msg, pdMS_TO_TICKS(100));
+        snprintf(msg, UART_MSG_SIZE, "CASH TOTAL=%lu DKK\r\n",
+                 salesReport.cashTotal);
+        xQueueSend(uartQueue, &msg, pdMS_TO_TICKS(UART_QUEUE_WAIT_MS));
 
-        snprintf(msg, UART_MSG_SIZE, "CARD TOTAL=%lu DKK\r\n", salesReport.cardTotal);
-        xQueueSend(uartQueue, &msg, pdMS_TO_TICKS(100));
+        snprintf(msg, UART_MSG_SIZE, "CARD TOTAL=%lu DKK\r\n",
+                 salesReport.cardTotal);
+        xQueueSend(uartQueue, &msg, pdMS_TO_TICKS(UART_QUEUE_WAIT_MS));
 
         snprintf(msg, UART_MSG_SIZE, "OPERATING TIME=%02u:%02u:%02u\r\n",
-                systemTime.hours, systemTime.minutes, systemTime.seconds);
-        xQueueSend(uartQueue, &msg, pdMS_TO_TICKS(100));
+                 systemTime.hours,
+                 systemTime.minutes,
+                 systemTime.seconds);
+        xQueueSend(uartQueue, &msg, pdMS_TO_TICKS(UART_QUEUE_WAIT_MS));
 
-        return;
+        command_handled = 1U;
     }
-    if(strncmp(cmd, "BUY ESPRESSO CARD ", 18) == 0)
+    else if (strncmp(cmd, "BUY ESPRESSO CARD ", 18U) == 0)
     {
-        LogEntry entry;
-
-        entry.product = PRODUCT_ESPRESSO;
-        entry.amount  = 1;
         taskENTER_CRITICAL();
-        entry.price   = prices.espresso_cup_dkk;
-        taskEXIT_CRITICAL();
-        entry.payment = PAYMENT_CARD;
-
-        strncpy(entry.paymentInfo, &cmd[18], sizeof(entry.paymentInfo) - 1);
-        entry.paymentInfo[sizeof(entry.paymentInfo) - 1] = '\0';
-
-        taskENTER_CRITICAL();
-        entry.hours   = timeOfDay.hours;
-        entry.minutes = timeOfDay.minutes;
-        entry.seconds = timeOfDay.seconds;
+        value = prices.espresso_cup_dkk;
         taskEXIT_CRITICAL();
 
-        xQueueSend(logQueue, &entry, portMAX_DELAY);
+        logger_create_sale(PRODUCT_ESPRESSO,
+                           1U,
+                           value,
+                           PAYMENT_CARD,
+                           &cmd[18]);
 
-        return;
+        command_handled = 1U;
     }
-    // BUY ESPRESSO
-       if(strcmp(cmd, "BUY ESPRESSO") == 0)
-       {
-           LogEntry entry;
+    else if (strcmp(cmd, "BUY ESPRESSO") == 0)
+    {
+        taskENTER_CRITICAL();
+        value = prices.espresso_cup_dkk;
+        taskEXIT_CRITICAL();
 
-           entry.product = PRODUCT_ESPRESSO;
-           entry.amount  = 1;
-           taskENTER_CRITICAL();
-           entry.price   = prices.espresso_cup_dkk;
-           taskEXIT_CRITICAL();
-           entry.payment = PAYMENT_CASH;
+        logger_create_sale(PRODUCT_ESPRESSO,
+                           1U,
+                           value,
+                           PAYMENT_CASH,
+                           "CASH");
 
-           strcpy(entry.paymentInfo, "CASH");
+        command_handled = 1U;
+    }
+    else if (strncmp(cmd, "SET TIME ", 9U) == 0)
+    {
+        if ((sscanf(&cmd[9], "%d:%d:%d", &hours, &minutes, &seconds) == 3) &&
+            (hours >= 0) && (hours < 24) &&
+            (minutes >= 0) && (minutes < 60) &&
+            (seconds >= 0) && (seconds < 60))
+        {
+            taskENTER_CRITICAL();
+            timeOfDay.hours = hours;
+            timeOfDay.minutes = minutes;
+            timeOfDay.seconds = seconds;
+            taskEXIT_CRITICAL();
 
-           taskENTER_CRITICAL();
-           entry.hours   = timeOfDay.hours;
-           entry.minutes = timeOfDay.minutes;
-           entry.seconds = timeOfDay.seconds;
-           taskEXIT_CRITICAL();
+            snprintf(msg, UART_MSG_SIZE,
+                     "Time of day set to %02d:%02d:%02d\r\n",
+                     hours,
+                     minutes,
+                     seconds);
+        }
+        else
+        {
+            snprintf(msg, UART_MSG_SIZE,
+                     "Invalid time. Use SET TIME HH:MM:SS\r\n");
+        }
 
-           xQueueSend(logQueue, &entry, portMAX_DELAY);
+        xQueueSend(uartQueue, &msg, pdMS_TO_TICKS(UART_QUEUE_WAIT_MS));
+        command_handled = 1U;
+    }
+    else if (strncmp(cmd, "SET ESPRESSO ", 13U) == 0)
+    {
+        value = atoi(&cmd[13]);
 
-           return;
-       }
+        taskENTER_CRITICAL();
+        prices.espresso_cup_dkk = value;
+        taskEXIT_CRITICAL();
 
-       if(strncmp(cmd, "SET TIME ", 9) == 0)
-       {
-           int h, m, s;
+        snprintf(msg, UART_MSG_SIZE,
+                 "Espresso price set to %u DKK\r\n",
+                 prices.espresso_cup_dkk);
+        xQueueSend(uartQueue, &msg, portMAX_DELAY);
 
-           if(sscanf(&cmd[9], "%d:%d:%d", &h, &m, &s) == 3 &&
-              h >= 0 && h < 24 &&
-              m >= 0 && m < 60 &&
-              s >= 0 && s < 60)
-           {
-               taskENTER_CRITICAL();
-               timeOfDay.hours = h;
-               timeOfDay.minutes = m;
-               timeOfDay.seconds = s;
-               taskEXIT_CRITICAL();
+        command_handled = 1U;
+    }
+    else if (strncmp(cmd, "SET LATTE ", 10U) == 0)
+    {
+        value = atoi(&cmd[10]);
 
-               snprintf(msg, UART_MSG_SIZE, "Time of day set to %02d:%02d:%02d\r\n", h, m, s);
-           }
-           else
-           {
-               snprintf(msg, UART_MSG_SIZE, "Invalid time. Use SET TIME HH:MM:SS\r\n");
-           }
+        taskENTER_CRITICAL();
+        prices.latte_cup_dkk = value;
+        taskEXIT_CRITICAL();
 
-           xQueueSend(uartQueue, &msg, pdMS_TO_TICKS(100));
-           return;
-       }
+        snprintf(msg, UART_MSG_SIZE,
+                 "Latte price set to %u DKK\r\n",
+                 prices.latte_cup_dkk);
+        xQueueSend(uartQueue, &msg, portMAX_DELAY);
 
-       if(strncmp(cmd, "SET ESPRESSO ", 13) == 0)
-       {
-           value = atoi(&cmd[13]);
-           taskENTER_CRITICAL();
-           prices.espresso_cup_dkk = value;
-           taskEXIT_CRITICAL();
+        command_handled = 1U;
+    }
+    else if (strncmp(cmd, "SET FILTER ", 11U) == 0)
+    {
+        value = atoi(&cmd[11]);
 
-           snprintf(msg, UART_MSG_SIZE, "Espresso price set to %u DKK\r\n", prices.espresso_cup_dkk);
-           xQueueSend(uartQueue, &msg, portMAX_DELAY);
-           return;
-       }
+        taskENTER_CRITICAL();
+        prices.filter_dkk_per_cl = value;
+        taskEXIT_CRITICAL();
 
-       if(strncmp(cmd, "SET LATTE ", 10) == 0)
-       {
-           value = atoi(&cmd[10]);
-           taskENTER_CRITICAL();
-           prices.latte_cup_dkk = value;
-           taskEXIT_CRITICAL();
+        snprintf(msg, UART_MSG_SIZE,
+                 "Filter price set to %u DKK/cl\r\n",
+                 prices.filter_dkk_per_cl);
+        xQueueSend(uartQueue, &msg, portMAX_DELAY);
 
-           snprintf(msg, UART_MSG_SIZE, "Latte price set to %u DKK\r\n", prices.latte_cup_dkk);
-           xQueueSend(uartQueue, &msg, portMAX_DELAY);
-           return;
-       }
+        command_handled = 1U;
+    }
+    else
+    {
+    }
 
-       if(strncmp(cmd, "SET FILTER ", 11) == 0)
-       {
-           value = atoi(&cmd[11]);
-           taskENTER_CRITICAL();
-           prices.filter_dkk_per_cl = value;
-           taskEXIT_CRITICAL();
-
-           snprintf(msg, UART_MSG_SIZE, "Filter price set to %u DKK/cl\r\n", prices.filter_dkk_per_cl);
-           xQueueSend(uartQueue, &msg, portMAX_DELAY);
-           return;
-       }
-    snprintf(msg, UART_MSG_SIZE, "Unknown command: %s\r\n", cmd);
-    xQueueSend(uartQueue, &msg, portMAX_DELAY);
+    if (command_handled == 0U)
+    {
+        snprintf(msg, UART_MSG_SIZE, "Unknown command: %s\r\n", cmd);
+        xQueueSend(uartQueue, &msg, portMAX_DELAY);
+    }
 }
 
+/****************************** End Of Function ****************************/
+
 void Command_Task(void *pvParameters)
+/*****************************************************************************
+*   Input    : FreeRTOS task parameter
+*   Output   : -
+*   Function : Reads UART input and sends complete commands to parser
+******************************************************************************/
 {
-    char cmdBuffer[50];
-    int index = 0;
-    char c;
+    char command_buffer[CMD_BUFFER_SIZE];
+    uint8_t buffer_index = 0U;
+    char received_char;
 
-    while(1)
+    (void)pvParameters;
+
+    while (1)
     {
-        if(UART0_CharAvailable())
+        if (UART0_CharAvailable() != 0)
         {
-            c = UART0_GetChar();
+            received_char = UART0_GetChar();
 
-            if(c == '\r' || c == '\n')
+            if ((received_char == '\r') || (received_char == '\n'))
             {
-                cmdBuffer[index] = '\0';
+                command_buffer[buffer_index] = '\0';
 
-                if(index > 0)
+                if (buffer_index > 0U)
                 {
-                    ParseCommand(cmdBuffer);
+                    ParseCommand(command_buffer);
                 }
 
-                index = 0;
+                buffer_index = 0U;
             }
             else
             {
-                if(index < 49)
+                if (buffer_index < CMD_LAST_INDEX)
                 {
-                    cmdBuffer[index++] = c;
+                    command_buffer[buffer_index] = received_char;
+                    buffer_index++;
                 }
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(COMMAND_TASK_DELAY_MS));
     }
 }
 
+/****************************** End Of Function ****************************/
+
 void Logger_Task(void *pvParameters)
+/*****************************************************************************
+*   Input    : FreeRTOS task parameter
+*   Output   : -
+*   Function : Receives log entries, updates report and sends log text to UART
+******************************************************************************/
 {
     LogEntry entry;
     char buffer[UART_MSG_SIZE];
 
-    while(1)
-    {
-        if(xQueueReceive(logQueue, &entry, portMAX_DELAY) == pdTRUE)
-        {
+    (void)pvParameters;
 
+    while (1)
+    {
+        if (xQueueReceive(logQueue, &entry, portMAX_DELAY) == pdTRUE)
+        {
             UpdateSalesReport(&entry);
 
             snprintf(buffer, UART_MSG_SIZE,
-                    "LOG: TIME=%02u:%02u:%02u PRODUCT=%s PRICE=%u AMOUNT=%u PAYMENT=%s INFO=%s\r\n",
-                    entry.hours,
-                    entry.minutes,
-                    entry.seconds,
-                    ProductToString(entry.product),
-                    entry.price,
-                    entry.amount,
-                    PaymentToString(entry.payment),
-                    entry.paymentInfo);
+                     "LOG: TIME=%02u:%02u:%02u PRODUCT=%s PRICE=%u AMOUNT=%u PAYMENT=%s INFO=%s\r\n",
+                     entry.hours,
+                     entry.minutes,
+                     entry.seconds,
+                     ProductToString(entry.product),
+                     entry.price,
+                     entry.amount,
+                     PaymentToString(entry.payment),
+                     entry.paymentInfo);
 
             xQueueSend(uartQueue, &buffer, portMAX_DELAY);
         }
     }
 }
 
+/****************************** End Of Function ****************************/
+
 void Clock_Task(void *pvParameters)
+/*****************************************************************************
+*   Input    : FreeRTOS task parameter
+*   Output   : -
+*   Function : Updates operating time and time of day once per second
+******************************************************************************/
 {
-    while(1)
+    (void)pvParameters;
+
+    while (1)
     {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(CLOCK_TASK_DELAY_MS));
 
         taskENTER_CRITICAL();
 
-        systemTime.seconds++;
+        logger_increment_time((TimeOfDay_t *)&systemTime);
+        logger_increment_time(&timeOfDay);
 
-        if(systemTime.seconds >= 60)
-        {
-            systemTime.seconds = 0;
-            systemTime.minutes++;
-        }
-
-        if(systemTime.minutes >= 60)
-        {
-            systemTime.minutes = 0;
-            systemTime.hours++;
-        }
-        timeOfDay.seconds++;
-
-        if(timeOfDay.seconds >= 60)
-        {
-            timeOfDay.seconds = 0;
-            timeOfDay.minutes++;
-        }
-
-        if(timeOfDay.minutes >= 60)
-        {
-            timeOfDay.minutes = 0;
-            timeOfDay.hours++;
-        }
-
-        if(timeOfDay.hours >= 24)
-        {
-            timeOfDay.hours = 0;
-        }
         taskEXIT_CRITICAL();
     }
 }
 
+/****************************** End Of Function ****************************/
+
 void UART0_Init(void)
+/*****************************************************************************
+*   Input    : -
+*   Output   : -
+*   Function : Initializes UART0 on PA0 and PA1
+******************************************************************************/
 {
-    SYSCTL_RCGCUART_R |= 0x01; // Enable UART0
-    SYSCTL_RCGCGPIO_R |= 0x01; // Enable Port A
-    while((SYSCTL_PRGPIO_R & 0x01) == 0);
-    GPIO_PORTA_AFSEL_R |= 0x03;
-    GPIO_PORTA_PCTL_R = (GPIO_PORTA_PCTL_R & 0xFFFFFF00) + 0x00000011;
-    GPIO_PORTA_DEN_R |= 0x03;
+    SYSCTL_RCGCUART_R |= UART0_CLOCK_ENABLE;
+    SYSCTL_RCGCGPIO_R |= GPIO_PORT_A_ENABLE;
 
-    UART0_CTL_R &= ~0x01;
-    UART0_IBRD_R = 8; // 16 MHz / (16*(8+44/64)) = 115107 baudrate
-    UART0_FBRD_R = 44; UART0_LCRH_R = 0x70; // 8-bit, FIFO
-    UART0_CTL_R = 0x301; // Enable UART
-}
-
-void UART0_SendChar(char c)
-{
-    while((UART0_FR_R & 0x20) != 0);
-    UART0_DR_R = c;
-}
-
-void UART0_SendString(char *str)
-{
-    while(*str)
+    while ((SYSCTL_PRGPIO_R & GPIO_PORT_A_ENABLE) == 0U)
     {
-        UART0_SendChar(*str++);
+    }
+
+    GPIO_PORTA_AFSEL_R |= GPIO_PA0_PA1_MASK;
+    GPIO_PORTA_PCTL_R = (GPIO_PORTA_PCTL_R & GPIO_PCTL_PA0_PA1_MASK) +
+                        GPIO_PCTL_UART0_PA0_PA1;
+    GPIO_PORTA_DEN_R |= GPIO_PA0_PA1_MASK;
+
+    UART0_CTL_R &= ~UART0_DISABLE;
+    UART0_IBRD_R = UART0_BAUD_INT;
+    UART0_FBRD_R = UART0_BAUD_FRAC;
+    UART0_LCRH_R = UART0_LINE_CONTROL;
+    UART0_CTL_R = UART0_ENABLE;
+}
+
+/****************************** End Of Function ****************************/
+
+void UART0_SendChar(char character)
+/*****************************************************************************
+*   Input    : Character to send
+*   Output   : -
+*   Function : Sends one character through UART0
+******************************************************************************/
+{
+    while ((UART0_FR_R & UART0_TX_FULL) != 0U)
+    {
+    }
+
+    UART0_DR_R = character;
+}
+
+/****************************** End Of Function ****************************/
+
+void UART0_SendString(char *string)
+/*****************************************************************************
+*   Input    : Pointer to string
+*   Output   : -
+*   Function : Sends a zero-terminated string through UART0
+******************************************************************************/
+{
+    while (*string != '\0')
+    {
+        UART0_SendChar(*string);
+        string++;
     }
 }
 
+/****************************** End Of Function ****************************/
+
 void UART_Task(void *pvParameters)
+/*****************************************************************************
+*   Input    : FreeRTOS task parameter
+*   Output   : -
+*   Function : Sends queued UART messages through UART0
+******************************************************************************/
 {
     char msg[UART_MSG_SIZE];
 
-    while(1)
+    (void)pvParameters;
+
+    while (1)
     {
-        if(xQueueReceive(uartQueue, &msg, portMAX_DELAY) == pdTRUE)
+        if (xQueueReceive(uartQueue, &msg, portMAX_DELAY) == pdTRUE)
         {
             UART0_SendString(msg);
         }
     }
 }
 
+/****************************** End Of Function ****************************/
+
 void UpdateSalesReport(LogEntry *entry)
+/*****************************************************************************
+*   Input    : Pointer to log entry
+*   Output   : -
+*   Function : Updates sales report totals from a log entry
+******************************************************************************/
 {
     taskENTER_CRITICAL();
-    switch(entry->product)
+
+    switch (entry->product)
     {
         case PRODUCT_ESPRESSO:
             salesReport.espressoSold++;
@@ -370,13 +651,19 @@ void UpdateSalesReport(LogEntry *entry)
             break;
     }
 
-    if(entry->payment == PAYMENT_CASH)
+    if (entry->payment == PAYMENT_CASH)
     {
         salesReport.cashTotal += entry->price;
     }
-    else if(entry->payment == PAYMENT_CARD)
+    else if (entry->payment == PAYMENT_CARD)
     {
         salesReport.cardTotal += entry->price;
     }
+    else
+    {
+    }
+
     taskEXIT_CRITICAL();
 }
+
+/****************************** End Of Function ****************************/
