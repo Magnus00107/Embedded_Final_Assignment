@@ -41,7 +41,8 @@ typedef enum
     APP_STATE_CASH,
     APP_STATE_CARD,
     APP_STATE_PAYBACK,
-    APP_STATE_PRODUCTION
+    APP_STATE_PRODUCTION,
+    APP_STATE_DONE
 
 } AppState_t;
 /*****************************************************************************

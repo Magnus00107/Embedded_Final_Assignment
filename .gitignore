@@ -83,3 +83,31 @@ Release/
 
 # Startup file excluded from submission
 tm4c123gh6pm_startup_ccs.c
+
+
+tm4c123gh6pm.h
+tm4c123gh6pm.cmd
+
+
+.launches/
+.settings/
+Debug/
+targetConfigs/
+
+
+.ccsproject
+.cproject
+.project
+
+
+heap_2.c
+list.c
+port.c
+portasm.asm
+queue.c
+startup_frt.c
+systick_frt.c
+tasks.c
+tm4c123gh6pm.cmd
+tm4c123gh6pm.h
+tm4c123gh6pm_startup_ccs.c
