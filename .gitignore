@@ -83,3 +83,7 @@ Release/
 
 # Startup file excluded from submission
 tm4c123gh6pm_startup_ccs.c
+
+
+tm4c123gh6pm.h
+tm4c123gh6pm.cmd
