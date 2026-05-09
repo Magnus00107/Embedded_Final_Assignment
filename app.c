@@ -16,6 +16,7 @@
 #include "app.h"
 #include "app_types.h"
 #include <stdio.h>
+#include "loggerMain.h"
 
 QueueHandle_t xInputQueue   = NULL;
 QueueHandle_t xLcdQueue     = NULL;
@@ -555,10 +556,48 @@ void App_Task(void *pvParameters)
                     break;
 
                 case APP_STATE_DONE:
+
                     App_SendDisplay("Coffee ready", "Remove cup");
 
                     if (inputEvent.type == INPUT_EVENT_SW1)
                     {
+                        LogEntry logEntry;
+
+                        logEntry.product = selectedProduct;
+                        logEntry.payment = selectedPayment;
+
+                        if (selectedProduct == PRODUCT_FILTER)
+                        {
+                            logEntry.amount = filterAmountCl;
+                        }
+                        else
+                        {
+                            logEntry.amount = 1;
+                        }
+
+                        logEntry.price = requiredPrice;
+
+                        if (selectedPayment == PAYMENT_CASH)
+                        {
+                            strcpy(logEntry.paymentInfo, "CASH");
+                        }
+                        else if (selectedPayment == PAYMENT_CARD)
+                        {
+                            strncpy(logEntry.paymentInfo, cardNumber, sizeof(logEntry.paymentInfo) - 1);
+                            logEntry.paymentInfo[sizeof(logEntry.paymentInfo) - 1] = '\0';
+                        }
+                        else
+                        {
+                            strcpy(logEntry.paymentInfo, "NONE");
+                        }
+
+                        taskENTER_CRITICAL();
+                        logEntry.hours   = timeOfDay.hours;
+                        logEntry.minutes = timeOfDay.minutes;
+                        logEntry.seconds = timeOfDay.seconds;
+                        taskEXIT_CRITICAL();
+
+                        xQueueSend(logQueue, &logEntry, pdMS_TO_TICKS(100));
                         cupPlaced = 0;
 
                         selectedProduct = PRODUCT_NONE;
