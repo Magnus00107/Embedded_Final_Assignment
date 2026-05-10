@@ -98,10 +98,11 @@ static uint8_t App_IsDigitOdd(char digit)
 
 void App_Task(void *pvParameters)
 {
-    uint16_t cashbackAmount = 0;
-    uint16_t filterAmountCl = 0;
-    uint16_t filterTotalPrice = 0;
-    uint16_t requiredPrice = 0;
+    uint16_t cashbackAmount = 0U;
+    uint16_t filterAmountCl = 0U;
+    uint16_t filterAmountHundredthsCl = 0U;
+    uint16_t filterTotalPrice = 0U;
+    uint16_t requiredPrice = 0U;
 
     AppState_t state = APP_STATE_IDLE;
     AppState_t previousState;
@@ -202,9 +203,10 @@ void App_Task(void *pvParameters)
                     {
                         if (inputEvent.key == '1')
                         {
+
                             selectedPayment = PAYMENT_CASH;
-                            userWallet = 0;
-                            state = APP_STATE_TRANSACTION;
+                            userWallet = 0U;
+                            state = APP_STATE_CASH;
                         }
                         else if (inputEvent.key == '2')
                         {
@@ -224,49 +226,46 @@ void App_Task(void *pvParameters)
                     }
                     break;
 
-                case APP_STATE_TRANSACTION:
+                case APP_STATE_CASH:
                     requiredPrice = App_GetProductPrice(selectedProduct, &prices, filterAmountCl);
-
-                    if (selectedPayment == PAYMENT_CASH)
+                    if (userWallet == 0)
                     {
-                        if (userWallet == 0)
+                        App_SendDisplay(App_ProductToText(selectedProduct), "Insert coins");
+                    }
+
+                    if (inputEvent.type == INPUT_EVENT_DIGI_LEFT)
+                    {
+                        userWallet += 5;
+
+                        snprintf(line2, sizeof(line2), "Paid: %u DKK", userWallet);
+                        App_SendDisplay(App_ProductToText(selectedProduct), line2);
+
+                        if ((selectedProduct != PRODUCT_FILTER) && (userWallet >= requiredPrice))
                         {
-                            App_SendDisplay(App_ProductToText(selectedProduct), "Insert coins");
-                        }
-
-                        if (inputEvent.type == INPUT_EVENT_DIGI_LEFT)
-                        {
-                            userWallet += 5;
-
-                            snprintf(line2, sizeof(line2), "Paid: %u DKK", userWallet);
-                            App_SendDisplay(App_ProductToText(selectedProduct), line2);
-
-                            if ((selectedProduct != PRODUCT_FILTER) && (userWallet >= requiredPrice))
-                            {
-                                state = APP_STATE_PAYBACK;
-                            }
-                        }
-                        else if (inputEvent.type == INPUT_EVENT_DIGI_RIGHT)
-                        {
-                            userWallet += 20;
-
-                            snprintf(line2, sizeof(line2), "Paid: %u DKK", userWallet);
-                            App_SendDisplay(App_ProductToText(selectedProduct), line2);
-
-                            if ((selectedProduct != PRODUCT_FILTER) && (userWallet >= requiredPrice))
-                            {
-                                state = APP_STATE_PAYBACK;
-                            }
-                        }
-                        else if ((selectedProduct == PRODUCT_FILTER) &&
-                                 (inputEvent.type == INPUT_EVENT_KEYPAD) &&
-                                 (inputEvent.key == '#') &&
-                                 (userWallet > 0))
-                        {
-                            state = APP_STATE_PRODUCTION;
+                            state = APP_STATE_PAYBACK;
                         }
                     }
-                    break;
+                    else if (inputEvent.type == INPUT_EVENT_DIGI_RIGHT)
+                    {
+                        userWallet += 20;
+
+                        snprintf(line2, sizeof(line2), "Paid: %u DKK", userWallet);
+                        App_SendDisplay(App_ProductToText(selectedProduct), line2);
+
+                        if ((selectedProduct != PRODUCT_FILTER) && (userWallet >= requiredPrice))
+                        {
+                            state = APP_STATE_PAYBACK;
+                        }
+                    }
+                    else if ((selectedProduct == PRODUCT_FILTER) &&
+                             (inputEvent.type == INPUT_EVENT_KEYPAD) &&
+                             (inputEvent.key == '#') &&
+                             (userWallet > 0))
+                    {
+                        state = APP_STATE_PRODUCTION;
+                    }
+
+                break;
 
                 case APP_STATE_CARD:
 
@@ -451,32 +450,23 @@ void App_Task(void *pvParameters)
 
                                 if (slowPhaseDone == 0U)
                                 {
-                                    filterAmountCl = filterAmountCl + 1U;
+                                    filterAmountHundredthsCl += 60U;
                                 }
                                 else
                                 {
-                                    filterAmountCl = filterAmountCl + 2U;
+                                    filterAmountHundredthsCl += 145U;
                                 }
+                                filterAmountCl = filterAmountHundredthsCl / 100U;
 
-                                filterTotalPrice = filterAmountCl * prices.filter_dkk_per_cl;
+                                filterTotalPrice =     (uint16_t)((filterAmountHundredthsCl * prices.filter_dkk_per_cl) / 100U);
 
                                 if (filterTotalPrice >= userWallet)
                                 {
                                     filterTotalPrice = userWallet;
                                     filterFinished = 1U;
                                 }
-
-                                snprintf(line1,
-                                         sizeof(line1),
-                                         "%u cl %u DKK/cl",
-                                         filterAmountCl,
-                                         prices.filter_dkk_per_cl);
-
-                                snprintf(line2,
-                                         sizeof(line2),
-                                         "Total: %u DKK",
-                                         filterTotalPrice);
-
+                                snprintf(line1, sizeof(line1), "%u.%02u cl",filterAmountHundredthsCl / 100U,filterAmountHundredthsCl % 100U);
+                                snprintf(line2, sizeof(line2), "Total: %u DKK", filterTotalPrice);
                                 App_SendDisplay(line1, line2);
                             }
                             else
@@ -568,7 +558,7 @@ void App_Task(void *pvParameters)
 
                         if (selectedProduct == PRODUCT_FILTER)
                         {
-                            logEntry.amount = filterAmountCl;
+                            logEntry.amount = (filterAmountHundredthsCl + 99U) / 100U;
                         }
                         else
                         {
@@ -609,6 +599,7 @@ void App_Task(void *pvParameters)
                         cashbackAmount = 0U;
 
                         filterAmountCl = 0U;
+                        filterAmountHundredthsCl = 0U;
                         filterTotalPrice = 0U;
                         filterFinished = 0U;
                         filterTimerStarted = 0U;
